@@ -27,7 +27,8 @@ npm install -g homebridge-kettle-pro
                 "minTemp": 40,
                 "maxTemp": 100,
                 "pollIntervalHeating": 10000,
-                "pollIntervalIdle": 300000
+                "pollIntervalIdle": 300000,
+                "syncTime": true
             }
         ]
     }
@@ -45,6 +46,7 @@ Each entry in `kettles` becomes one accessory in HomeKit.
 | `maxTemp` | no | Maximum target temp in °C (default: 100) |
 | `pollIntervalHeating` | no | Temperature polling interval while heating, in milliseconds (default: 10000 / 10 seconds) |
 | `pollIntervalIdle` | no | Temperature polling interval while idle, in milliseconds (default: 300000 / 5 minutes) |
+| `syncTime` | no | For Wi-Fi kettles, set the kettle clock to the host system's local time when Homebridge starts and once per day (default: `false`) |
 
 Temperature polling uses `pollIntervalHeating` while the kettle is heating and
 `pollIntervalIdle` otherwise. These settings are configured separately for each
@@ -54,6 +56,8 @@ kettle.
 
 ### Wi-Fi CLI (`connection: "wifi"`)
 Talks directly to the EKG Pro's built-in HTTP CLI (`/cli?cmd=...`). Requires firmware that supports `setstate` and `setsetting settempr`.
+
+Set `syncTime` to `true` to synchronize the kettle clock with the local time of the system running Homebridge during module initialization and once every 24 hours. The plugin uses the kettle's `setclock` CLI command and does not alter BLE bridge clocks.
 
 ### BLE bridge (`connection: "ble"`)
 Talks to the legacy [stagg-ekg-plus](https://github.com/calvinmclean/stagg-ekg-plus) Python bridge via `/state`, `/current_temp`, `/target_temp`.
