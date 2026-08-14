@@ -66,7 +66,7 @@ class StaggKettlePlatform {
 
 function getPollIntervals(config) {
     const heating = typeof config.pollIntervalHeating === 'number' ? config.pollIntervalHeating : 10000;
-    const idle = typeof config.pollIntervalIdle === 'number' ? config.pollIntervalIdle : 300000;
+    const idle = typeof config.pollIntervalIdle === 'number' ? config.pollIntervalIdle : 1800000;
     return { heating, idle };
 }
 
