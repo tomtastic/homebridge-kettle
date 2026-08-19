@@ -1,6 +1,7 @@
 'use strict'
 
 const StaggEKGProClient = require('./lib/stagg-ekg-pro-client')
+const { startTempPolling } = require('./lib/temperature-polling')
 
 module.exports = (api) => {
     api.registerPlatform('homebridge-kettle-pro', 'StaggKettle', StaggKettlePlatform);
@@ -55,21 +56,38 @@ class StaggKettlePlatform {
     _setupAccessory(accessory) {
         const config = accessory.context.config;
         const mode = String(config.connection || config.mode || '').toLowerCase();
-        const { Service, Characteristic } = this.api.hap;
+        const { Service, Characteristic, HapStatusError, HAPStatus } = this.api.hap;
         if (mode === 'wifi') {
-            new StaggEKGProWifiHandler(this.log, config, accessory, Service, Characteristic);
+            new StaggEKGProWifiHandler(
+                this.log,
+                config,
+                accessory,
+                Service,
+                Characteristic,
+                HapStatusError,
+                HAPStatus,
+            );
         } else {
             new StaggEKGPlusHandler(this.log, config, accessory, Service, Characteristic);
         }
     }
 }
 
-
 class StaggEKGProWifiHandler {
-    constructor(log, config, accessory, Service, Characteristic) {
+    constructor(log, config, accessory, Service, Characteristic, HapStatusError, HAPStatus) {
         const client = new StaggEKGProClient(config.url);
         const minTemp = typeof config.minTemp === 'number' ? config.minTemp : 40;
         const maxTemp = typeof config.maxTemp === 'number' ? config.maxTemp : 100;
+
+        if (config.syncTime === true) {
+            const syncClock = () => client.syncClock()
+                .then(() => log.info(`Synced ${config.name || 'kettle'} clock to local time.`))
+                .catch(err => log.warn(`Could not sync ${config.name || 'kettle'} clock: ${err.message}`));
+
+            syncClock();
+            this.clockSyncInterval = setInterval(syncClock, 24 * 60 * 60 * 1000);
+            this.clockSyncInterval.unref?.();
+        }
 
         accessory.getService(Service.AccessoryInformation)
             .setCharacteristic(Characteristic.Manufacturer, 'Fellow')
@@ -116,14 +134,38 @@ class StaggEKGProWifiHandler {
                 ]);
             });
 
+        let temperaturePolling;
         service.getCharacteristic(Characteristic.CurrentTemperature)
-            .setProps({ minValue: 0, maxValue: maxTemp })
+            .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
                 const body = await client.commandAsync('state');
                 const tempC = client.parseTemp(body);
-                if (tempC === null) throw new Error(`could not parse current temp: ${body.trim()}`);
+                if (tempC === null) {
+                    temperaturePolling?.markTemperatureUnavailable();
+                    log.info('No temp data, is kettle off its base?');
+                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                }
                 return tempC;
             });
+
+        // Periodic polling with configurable intervals for heating vs idle
+        temperaturePolling = startTempPolling(log, config, async (idleTemperatureDue) => {
+            const body = await client.commandAsync('state');
+            const isHeating = client.parseState(body);
+            const tempC = client.parseTemp(body);
+            let temperatureUpdated = false;
+            if (isHeating === 1 || idleTemperatureDue) {
+                if (tempC !== null) {
+                    service.updateCharacteristic(Characteristic.CurrentTemperature, tempC);
+                    temperatureUpdated = true;
+                }
+            }
+            return {
+                isHeating,
+                temperatureUpdated,
+                temperatureAvailable: tempC !== null,
+            };
+        });
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)
             .onGet(async () => 0)
@@ -186,6 +228,22 @@ class StaggEKGPlusHandler {
                 if (isNaN(tempC)) throw new Error(`could not parse current temp: ${body}`);
                 return tempC;
             });
+
+        // Periodic polling with configurable intervals for heating vs idle
+        startTempPolling(log, config, async (idleTemperatureDue) => {
+            const stateBody = await _fetch('/state').then(r => r.text());
+            const isHeating = parseFloat(stateBody);
+            let temperatureUpdated = false;
+            if (isHeating === 1 || idleTemperatureDue) {
+                const currentBody = await _fetch('/current_temp').then(r => r.text());
+                const tempC = (parseFloat(currentBody) - 32) / 1.8;
+                if (!isNaN(tempC)) {
+                    service.updateCharacteristic(Characteristic.CurrentTemperature, tempC);
+                    temperatureUpdated = true;
+                }
+            }
+            return { isHeating, temperatureUpdated };
+        });
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)
             .onGet(async () => 0)
