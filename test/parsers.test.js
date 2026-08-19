@@ -208,6 +208,17 @@ test('parse temp in F to C', () => {
   assert.strictEqual(client._parseTempLine('tempr=212 F', 'tempr'), 100)
 })
 
+test('parse temp rejects observed off-base firmware readings', () => {
+  for (const value of [1885156601, 1884991341, 1884222511, 1884222211]) {
+    assert.strictEqual(client.parseTemp(`tempr=${value} C`), null)
+  }
+})
+
+test('parse temp rejects values outside the kettle range', () => {
+  assert.strictEqual(client.parseTemp('tempr=-1 C'), null)
+  assert.strictEqual(client.parseTemp('tempr=100.1 C'), null)
+})
+
 test('parse state from S_Heat string', () => {
   assert.strictEqual(client.parseState('mode=S_Heat'), 1)
 })
