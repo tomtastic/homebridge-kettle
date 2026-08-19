@@ -46,8 +46,9 @@ Each entry in `kettles` becomes one accessory in HomeKit.
 | `pollIntervalHeating` | no | Temperature polling interval while heating, in milliseconds (default: 10000 / 10 seconds) |
 | `pollIntervalIdle` | no | Temperature polling interval while idle, in milliseconds (default: 1800000 / 30 minutes) |
 
-Temperature polling uses `pollIntervalHeating` while the kettle is heating and
-`pollIntervalIdle` otherwise. These settings are configured separately for each
+The plugin checks kettle state every `pollIntervalHeating` so it detects heating
+promptly. It publishes temperatures at that interval while heating and at
+`pollIntervalIdle` while idle. These settings are configured separately for each
 kettle.
 
 ## Connection types
