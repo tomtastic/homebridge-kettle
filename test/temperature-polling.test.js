@@ -69,3 +69,68 @@ test('state continues polling at the heating interval while idle', async () => {
   assert.strictEqual(polls, 2)
   assert.strictEqual(scheduled.delay, 10)
 })
+
+test('temperature is due immediately after an off-base reading', async () => {
+  let time = 0
+  let scheduled
+  const idleTemperatureDue = []
+  const results = [
+    { isHeating: 0, temperatureUpdated: true, temperatureAvailable: true },
+    { isHeating: 0, temperatureUpdated: false, temperatureAvailable: false },
+    { isHeating: 0, temperatureUpdated: true, temperatureAvailable: true },
+  ]
+
+  startTempPolling({ debug() {} }, {
+    pollIntervalHeating: 10,
+    pollIntervalIdle: 1800000,
+  }, async (idleDue) => {
+    idleTemperatureDue.push(idleDue)
+    return results.shift()
+  }, {
+    now: () => time,
+    setTimeout: (fn, delay) => { scheduled = { fn, delay } },
+  })
+
+  await Promise.resolve()
+  assert.deepStrictEqual(idleTemperatureDue, [true])
+
+  time = 10
+  scheduled.fn()
+  await Promise.resolve()
+  assert.deepStrictEqual(idleTemperatureDue, [true, false])
+
+  time = 20
+  scheduled.fn()
+  await Promise.resolve()
+  assert.deepStrictEqual(idleTemperatureDue, [true, false, true])
+})
+
+test('a HomeKit off-base error makes temperature due on the next poll', async () => {
+  let time = 0
+  let scheduled
+  const idleTemperatureDue = []
+
+  const polling = startTempPolling({ debug() {} }, {
+    pollIntervalHeating: 10,
+    pollIntervalIdle: 1800000,
+  }, async (idleDue) => {
+    idleTemperatureDue.push(idleDue)
+    return {
+      isHeating: 0,
+      temperatureUpdated: idleDue,
+      temperatureAvailable: true,
+    }
+  }, {
+    now: () => time,
+    setTimeout: (fn, delay) => { scheduled = { fn, delay } },
+  })
+
+  await Promise.resolve()
+  assert.deepStrictEqual(idleTemperatureDue, [true])
+
+  polling.markTemperatureUnavailable()
+  time = 10
+  scheduled.fn()
+  await Promise.resolve()
+  assert.deepStrictEqual(idleTemperatureDue, [true, true])
+})

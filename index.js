@@ -134,12 +134,14 @@ class StaggEKGProWifiHandler {
                 ]);
             });
 
+        let temperaturePolling;
         service.getCharacteristic(Characteristic.CurrentTemperature)
             .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
                 const body = await client.commandAsync('state');
                 const tempC = client.parseTemp(body);
                 if (tempC === null) {
+                    temperaturePolling?.markTemperatureUnavailable();
                     log.info('No temp data, is kettle off its base?');
                     throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
                 }
@@ -147,18 +149,22 @@ class StaggEKGProWifiHandler {
             });
 
         // Periodic polling with configurable intervals for heating vs idle
-        startTempPolling(log, config, async (idleTemperatureDue) => {
+        temperaturePolling = startTempPolling(log, config, async (idleTemperatureDue) => {
             const body = await client.commandAsync('state');
             const isHeating = client.parseState(body);
+            const tempC = client.parseTemp(body);
             let temperatureUpdated = false;
             if (isHeating === 1 || idleTemperatureDue) {
-                const tempC = client.parseTemp(body);
                 if (tempC !== null) {
                     service.updateCharacteristic(Characteristic.CurrentTemperature, tempC);
                     temperatureUpdated = true;
                 }
             }
-            return { isHeating, temperatureUpdated };
+            return {
+                isHeating,
+                temperatureUpdated,
+                temperatureAvailable: tempC !== null,
+            };
         });
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)
