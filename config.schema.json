@@ -57,12 +57,6 @@
               "minimum": 0,
               "maximum": 100
             },
-            "syncTime": {
-              "type": "boolean",
-              "title": "Sync Kettle Clock",
-              "description": "Set the Wi-Fi kettle clock to the host system's local time when Homebridge starts and once per day.",
-              "default": false
-            },
             "pollIntervalHeating": {
               "type": "number",
               "title": "Heating Poll Interval (ms)",
@@ -76,6 +70,12 @@
               "description": "How often to publish temperature while idle. State is still checked at the heating interval.",
               "default": 1800000,
               "minimum": 1000
+            },
+            "syncTime": {
+              "type": "boolean",
+              "title": "Sync Kettle Clock",
+              "description": "Set the Wi-Fi kettle clock to the host system's local time when Homebridge starts and once per day.",
+              "default": false
             }
           },
           "required": ["name", "connection", "url"]
