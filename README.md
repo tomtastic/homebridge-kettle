@@ -48,8 +48,9 @@ Each entry in `kettles` becomes one accessory in HomeKit.
 | `pollIntervalIdle` | no | Temperature polling interval while idle, in milliseconds (default: 1800000 / 30 minutes) |
 | `syncTime` | no | For Wi-Fi kettles, set the kettle clock to the host system's local time when Homebridge starts and once per day (default: `false`) |
 
-Temperature polling uses `pollIntervalHeating` while the kettle is heating and
-`pollIntervalIdle` otherwise. These settings are configured separately for each
+The plugin checks kettle state every `pollIntervalHeating` so it detects heating
+promptly. It publishes temperatures at that interval while heating and at
+`pollIntervalIdle` while idle. These settings are configured separately for each
 kettle.
 
 ## Connection types

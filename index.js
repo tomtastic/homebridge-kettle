@@ -1,6 +1,7 @@
 'use strict'
 
 const StaggEKGProClient = require('./lib/stagg-ekg-pro-client')
+const { startTempPolling } = require('./lib/temperature-polling')
 
 module.exports = (api) => {
     api.registerPlatform('homebridge-kettle-pro', 'StaggKettle', StaggKettlePlatform);
@@ -63,30 +64,6 @@ class StaggKettlePlatform {
         }
     }
 }
-
-function getPollIntervals(config) {
-    const heating = typeof config.pollIntervalHeating === 'number' ? config.pollIntervalHeating : 10000;
-    const idle = typeof config.pollIntervalIdle === 'number' ? config.pollIntervalIdle : 1800000;
-    return { heating, idle };
-}
-
-function startTempPolling(log, config, service, updateTempFn) {
-    const { heating, idle } = getPollIntervals(config);
-
-    function poll() {
-        updateTempFn().then((isHeating) => {
-            const nextDelay = isHeating === 1 ? heating : idle;
-            setTimeout(poll, nextDelay);
-        }).catch((err) => {
-            log.debug('Temperature poll failed:', err.message);
-            // Continue polling even on failure, with idle delay
-            setTimeout(poll, idle);
-        });
-    }
-
-    poll();
-}
-
 
 class StaggEKGProWifiHandler {
     constructor(log, config, accessory, Service, Characteristic) {
@@ -159,16 +136,18 @@ class StaggEKGProWifiHandler {
             });
 
         // Periodic polling with configurable intervals for heating vs idle
-        startTempPolling(log, config, service, async () => {
+        startTempPolling(log, config, async (idleTemperatureDue) => {
             const body = await client.commandAsync('state');
             const isHeating = client.parseState(body);
-            if (isHeating === 1) {
+            let temperatureUpdated = false;
+            if (isHeating === 1 || idleTemperatureDue) {
                 const tempC = client.parseTemp(body);
                 if (tempC !== null) {
                     service.updateCharacteristic(Characteristic.CurrentTemperature, tempC);
+                    temperatureUpdated = true;
                 }
             }
-            return isHeating;
+            return { isHeating, temperatureUpdated };
         });
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)
@@ -234,17 +213,19 @@ class StaggEKGPlusHandler {
             });
 
         // Periodic polling with configurable intervals for heating vs idle
-        startTempPolling(log, config, service, async () => {
+        startTempPolling(log, config, async (idleTemperatureDue) => {
             const stateBody = await _fetch('/state').then(r => r.text());
             const isHeating = parseFloat(stateBody);
-            if (isHeating === 1) {
+            let temperatureUpdated = false;
+            if (isHeating === 1 || idleTemperatureDue) {
                 const currentBody = await _fetch('/current_temp').then(r => r.text());
                 const tempC = (parseFloat(currentBody) - 32) / 1.8;
                 if (!isNaN(tempC)) {
                     service.updateCharacteristic(Characteristic.CurrentTemperature, tempC);
+                    temperatureUpdated = true;
                 }
             }
-            return isHeating;
+            return { isHeating, temperatureUpdated };
         });
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)
