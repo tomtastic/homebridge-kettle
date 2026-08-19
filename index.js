@@ -150,7 +150,7 @@ class StaggEKGProWifiHandler {
             });
 
         service.getCharacteristic(Characteristic.CurrentTemperature)
-            .setProps({ minValue: 0, maxValue: maxTemp })
+            .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
                 const body = await client.commandAsync('state');
                 const tempC = client.parseTemp(body);
