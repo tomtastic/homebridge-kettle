@@ -26,7 +26,9 @@ npm install -g homebridge-kettle-pro
                 "url": "http://192.168.1.32",
                 "minTemp": 40,
                 "maxTemp": 100,
-                "syncTime": true
+                "syncTime": true,
+                "pollIntervalHeating": 10000,
+                "pollIntervalIdle": 1800000
             }
         ]
     }
@@ -43,6 +45,13 @@ Each entry in `kettles` becomes one accessory in HomeKit.
 | `minTemp` | no | Minimum target temp in °C (default: 40) |
 | `maxTemp` | no | Maximum target temp in °C (default: 100) |
 | `syncTime` | no | For Wi-Fi kettles, set the kettle clock to the host system's local time when Homebridge starts and once per day (default: `false`) |
+| `pollIntervalHeating` | no | Temperature polling interval while heating, in milliseconds (default: 10000 / 10 seconds) |
+| `pollIntervalIdle` | no | Temperature polling interval while idle, in milliseconds (default: 1800000 / 30 minutes) |
+
+The plugin checks kettle state every `pollIntervalHeating` so it detects heating
+promptly. It publishes temperatures at that interval while heating and at
+`pollIntervalIdle` while idle. These settings are configured separately for each
+kettle.
 
 ## Connection types
 
