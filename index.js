@@ -78,11 +78,54 @@ class StaggEKGProWifiHandler {
         const client = new StaggEKGProClient(config.url);
         const minTemp = typeof config.minTemp === 'number' ? config.minTemp : 40;
         const maxTemp = typeof config.maxTemp === 'number' ? config.maxTemp : 100;
+        const name = config.name || 'Kettle';
+        const endpoint = client.cliUrl.replace(/\/\/[^/@]*@/, '//');
+        let temperaturePolling;
+        let unavailable = false;
+
+        const communicate = async (operation) => {
+            try {
+                return await operation();
+            } catch (err) {
+                temperaturePolling?.markTemperatureUnavailable();
+                if (!unavailable) {
+                    unavailable = true;
+                    const cause = err.cause;
+                    const details = [err.message, cause?.code, cause?.message]
+                        .filter(Boolean).join(': ');
+                    log.warn(`${name} unavailable (${endpoint}): ${details}`);
+                }
+                throw err;
+            }
+        };
+        const command = (cmd) => communicate(() => client.commandAsync(cmd));
+        const readState = () => communicate(async () => {
+            const body = await client.commandAsync('state');
+            const isHeating = client.parseState(body);
+            const targetC = client.parseTargetTemp(body);
+            if (isHeating === null || targetC === null) {
+                throw new Error('Invalid kettle state response: missing heating state or target temperature');
+            }
+            if (unavailable) {
+                unavailable = false;
+                log.info(`Connection to ${name} restored (${endpoint}).`);
+            }
+            return { isHeating, targetC, tempC: client.parseTemp(body) };
+        });
+        const homeKit = (operation) => async (...args) => {
+            try {
+                return await operation(...args);
+            } catch (err) {
+                if (err instanceof HapStatusError) throw err;
+                throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+            }
+        };
 
         if (config.syncTime === true) {
-            const syncClock = () => client.syncClock()
+            const syncClock = () => communicate(() => client.syncClock())
                 .then(() => log.info(`Synced ${config.name || 'kettle'} clock to local time.`))
-                .catch(err => log.warn(`Could not sync ${config.name || 'kettle'} clock: ${err.message}`));
+                // communicate already reports the outage once for this kettle.
+                .catch(() => {});
 
             syncClock();
             this.clockSyncInterval = setInterval(syncClock, 24 * 60 * 60 * 1000);
@@ -99,60 +142,41 @@ class StaggEKGProWifiHandler {
 
         service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
             .setProps({ validValues: [0, 1] })
-            .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const value = client.parseState(body);
-                if (value === null) throw new Error(`unrecognised state: ${body.trim()}`);
-                return value;
-            })
-            .onSet(async (value) => {
-                await client.commandAsync(`setstate ${client.stateForHomeKit(value)}`);
-            });
+            .onGet(homeKit(async () => (await readState()).isHeating))
+            .onSet(homeKit(async (value) => {
+                await command(`setstate ${client.stateForHomeKit(value)}`);
+            }));
 
         service.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
             .setProps({ validValues: [0, 1] })
-            .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const value = client.parseState(body);
-                if (value === null) throw new Error(`unrecognised state: ${body.trim()}`);
-                return value;
-            });
+            .onGet(homeKit(async () => (await readState()).isHeating));
 
         service.getCharacteristic(Characteristic.TargetTemperature)
             .setProps({ minValue: minTemp, maxValue: maxTemp })
-            .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const targetC = client.parseTargetTemp(body);
-                if (targetC === null) throw new Error(`could not parse target temp: ${body.trim()}`);
-                return targetC;
-            })
-            .onSet(async (value) => {
+            .onGet(homeKit(async () => (await readState()).targetC))
+            .onSet(homeKit(async (value) => {
                 const targetF = Math.round(client.cToF(value));
                 await Promise.all([
-                    client.commandAsync(`setsetting settempr ${targetF}`),
-                    client.commandAsync(`setstate S_Heat`),
+                    command(`setsetting settempr ${targetF}`),
+                    command(`setstate S_Heat`),
                 ]);
-            });
+            }));
 
-        let temperaturePolling;
         service.getCharacteristic(Characteristic.CurrentTemperature)
             .setProps({ minValue: 0, maxValue: 100 })
-            .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const tempC = client.parseTemp(body);
+            .onGet(homeKit(async () => {
+                const { tempC } = await readState();
                 if (tempC === null) {
                     temperaturePolling?.markTemperatureUnavailable();
                     log.info('No temp data, is kettle off its base?');
                     throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
                 }
                 return tempC;
-            });
+            }));
 
         // Periodic polling with configurable intervals for heating vs idle
         temperaturePolling = startTempPolling(log, config, async (idleTemperatureDue) => {
-            const body = await client.commandAsync('state');
-            const isHeating = client.parseState(body);
-            const tempC = client.parseTemp(body);
+            const { isHeating, tempC } = await readState();
             let temperatureUpdated = false;
             if (isHeating === 1 || idleTemperatureDue) {
                 if (tempC !== null) {

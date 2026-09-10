@@ -53,6 +53,12 @@ promptly. It publishes temperatures at that interval while heating and at
 `pollIntervalIdle` while idle. These settings are configured separately for each
 kettle.
 
+Wi-Fi requests time out after 2.5 seconds. If communication fails, HomeKit reports
+“No Response” and the plugin logs one warning with the connection error. State
+polling continues at the configured heating interval. Once a valid state response
+arrives, the plugin logs recovery and publishes the next available temperature
+immediately, including while idle. Failed commands are not automatically retried.
+
 ## Connection types
 
 ### Wi-Fi CLI (`connection: "wifi"`)
